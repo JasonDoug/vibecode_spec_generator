@@ -74,7 +74,10 @@ Framework: Vitest 4.0.10 + @testing-library/react + happy-dom. Global mocks (loc
 Mock pattern for API route tests:
 ```typescript
 vi.mock("ai", () => ({ streamText: vi.fn(() => ({ ... })) }));
-vi.mock("@ai-sdk/openai", () => ({ openai: vi.fn() }));
+vi.mock("@/app/utils/ai-provider", () => ({
+  getModel: vi.fn(() => ({})),
+  getOptionsModel: vi.fn(() => ({})),
+}));
 ```
 
 Run `npm test` before committing. All tests must pass.

@@ -1,5 +1,35 @@
 import { openai, createOpenAI } from "@ai-sdk/openai";
 
+// ─── Private factory helpers ──────────────────────────────────────────────────
+// Centralise provider construction so getModel and getOptionsModel stay thin
+// and baseURL / apiKey / header logic lives in exactly one place per provider.
+
+function buildLocalClient(modelName: string) {
+  const baseURL =
+    process.env.LOCAL_AI_BASE_URL || "http://localhost:11434/v1";
+  const apiKey = process.env.LOCAL_AI_API_KEY || "local";
+  return createOpenAI({ baseURL, apiKey })(modelName);
+}
+
+function buildOpenRouterClient(modelName: string) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "OPENROUTER_API_KEY is not set. Add it to your .env.local file."
+    );
+  }
+  return createOpenAI({
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey,
+    headers: {
+      "HTTP-Referer": "https://vibescaffold.dev",
+      "X-Title": "Vibe Scaffold",
+    },
+  })(modelName);
+}
+
+// ─── getModel ─────────────────────────────────────────────────────────────────
+
 /**
  * Returns an AI model instance for chat and document generation.
  *
@@ -28,29 +58,23 @@ export function getModel(modelName: string) {
   const provider = process.env.AI_PROVIDER || "openai";
 
   switch (provider) {
-    case "local": {
-      const baseURL =
-        process.env.LOCAL_AI_BASE_URL || "http://localhost:11434/v1";
-      const apiKey = process.env.LOCAL_AI_API_KEY || "local";
-      return createOpenAI({ baseURL, apiKey })(modelName);
-    }
+    case "local":
+      return buildLocalClient(modelName);
 
-    case "openrouter": {
-      const apiKey = process.env.OPENROUTER_API_KEY || "";
-      return createOpenAI({
-        baseURL: "https://openrouter.ai/api/v1",
-        apiKey,
-        headers: {
-          "HTTP-Referer": "https://vibescaffold.dev",
-          "X-Title": "Vibe Scaffold",
-        },
-      })(modelName);
-    }
+    case "openrouter":
+      return buildOpenRouterClient(modelName);
 
     default:
+      if (provider !== "openai") {
+        console.warn(
+          `Unknown AI_PROVIDER "${provider}" — falling back to OpenAI. Check your .env.local file.`
+        );
+      }
       return openai(modelName);
   }
 }
+
+// ─── getOptionsModel ──────────────────────────────────────────────────────────
 
 /**
  * Returns an AI model instance specifically for multiple-choice options generation.
@@ -63,18 +87,19 @@ export function getModel(modelName: string) {
  *   "openai"     — Uses OPENAI_OPTIONS_MODEL, then falls back to OPENAI_MODEL (default: gpt-4o).
  *                  All gpt-4o and gpt-4-turbo variants support structured outputs.
  *
- *   "local"      — Uses LOCAL_OPTIONS_MODEL. Pick a model with reliable JSON schema support.
- *                  Not all local models handle structured outputs correctly — test before use.
- *                  Recommended models (Ollama):
+ *   "local"      — Uses LOCAL_OPTIONS_MODEL (default: "llama3.1:8b").
+ *                  Pick a model with reliable JSON schema support — not all local
+ *                  models handle structured outputs correctly; test before use.
+ *                  Recommended (Ollama):
+ *                    LOCAL_OPTIONS_MODEL=qwen2.5:7b        (strong structured output)
  *                    LOCAL_OPTIONS_MODEL=llama3.1:8b       (good JSON support)
  *                    LOCAL_OPTIONS_MODEL=mistral:7b-instruct
- *                    LOCAL_OPTIONS_MODEL=qwen2.5:7b        (strong structured output)
- *                  If your primary local model doesn't support structured outputs, set
- *                  OPTIONS_PROVIDER=openai or OPTIONS_PROVIDER=openrouter to use a
- *                  different provider just for this feature.
+ *                  If your primary local model doesn't support structured outputs,
+ *                  set OPTIONS_PROVIDER=openai or OPTIONS_PROVIDER=openrouter.
  *
- *   "openrouter" — Uses OPENROUTER_OPTIONS_MODEL. Choose a model with structured output support.
- *                  Recommended (fast + cheap + reliable JSON):
+ *   "openrouter" — Uses OPENROUTER_OPTIONS_MODEL (default: "openai/gpt-4o-mini").
+ *                  Requires OPENROUTER_API_KEY. Choose a model with structured
+ *                  output support. Recommended (fast + cheap + reliable JSON):
  *                    OPENROUTER_OPTIONS_MODEL=openai/gpt-4o-mini
  *                    OPENROUTER_OPTIONS_MODEL=google/gemini-2.0-flash-001
  *                    OPENROUTER_OPTIONS_MODEL=anthropic/claude-3-5-haiku
@@ -85,33 +110,22 @@ export function getOptionsModel() {
 
   switch (provider) {
     case "local": {
-      const baseURL =
-        process.env.LOCAL_AI_BASE_URL || "http://localhost:11434/v1";
-      const apiKey = process.env.LOCAL_AI_API_KEY || "local";
-      const modelName =
-        process.env.LOCAL_OPTIONS_MODEL ||
-        process.env.OPENAI_MODEL ||
-        "llama3.1:8b";
-      return createOpenAI({ baseURL, apiKey })(modelName);
+      const modelName = process.env.LOCAL_OPTIONS_MODEL || "llama3.1:8b";
+      return buildLocalClient(modelName);
     }
 
     case "openrouter": {
-      const apiKey = process.env.OPENROUTER_API_KEY || "";
       const modelName =
-        process.env.OPENROUTER_OPTIONS_MODEL ||
-        process.env.OPENAI_MODEL ||
-        "openai/gpt-4o-mini";
-      return createOpenAI({
-        baseURL: "https://openrouter.ai/api/v1",
-        apiKey,
-        headers: {
-          "HTTP-Referer": "https://vibescaffold.dev",
-          "X-Title": "Vibe Scaffold",
-        },
-      })(modelName);
+        process.env.OPENROUTER_OPTIONS_MODEL || "openai/gpt-4o-mini";
+      return buildOpenRouterClient(modelName);
     }
 
     default: {
+      if (provider !== "openai") {
+        console.warn(
+          `Unknown OPTIONS_PROVIDER "${provider}" — falling back to OpenAI. Check your .env.local file.`
+        );
+      }
       const modelName =
         process.env.OPENAI_OPTIONS_MODEL ||
         process.env.OPENAI_MODEL ||
